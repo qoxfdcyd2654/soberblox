@@ -240,63 +240,6 @@
             font-size: 16px;
         }
     </style>
-</head>
-<body>
-    <button id="toggle-hub">🎨 Creator Hub</button>
-    
-    <div id="creator-hub">
-        <div class="hub-header">
-            <h1>SoberBlox Creator Hub</h1>
-            <p>Создавайте и редактируйте мир</p>
-        </div>
-        
-        <div class="hub-section">
-            <h3>📦 Создать объект</h3>
-            <input type="text" id="object-name" placeholder="Название">
-            <select id="object-type">
-                <option value="block">Блок</option>
-                <option value="sphere">Сфера</option>
-                <option value="cylinder">Цилиндр</option>
-                <option value="tree">Дерево</option>
-            </select>
-            <input type="color" id="object-color" value="#e94560">
-            <button id="create-object">Создать на позиции</button>
-        </div>
-        
-        <div class="hub-section">
-            <h3>🗑️ Объекты в мире</h3>
-            <div id="objects-list">Загрузка...</div>
-        </div>
-    </div>
-    
-    <div id="hud">
-        <div>📍 Позиция: <span id="pos">X:0 Z:0</span></div>
-    </div>
-    
-    <div id="players-online">
-        <div>👥 Онлайн: <span id="online-count">0</span></div>
-        <div id="players-list"></div>
-    </div>
-    
-    <div id="chat-container">
-        <div id="chat-messages"></div>
-        <div id="chat-input-container">
-            <input type="text" id="chat-input" placeholder="Напишите сообщение..." maxlength="200">
-            <button id="chat-send">➤</button>
-        </div>
-    </div>
-    
-    <div id="performance">
-        FPS: <span id="fps">0</span> | Обн/сек: <span id="updates">0</span>
-    </div>
-    
-    <div id="login-modal">
-        <div class="login-box">
-            <h2>SoberBlox</h2>
-            <input type="text" id="username-input" placeholder="Введите имя игрока" maxlength="16">
-            <button id="login-btn">Войти в игру</button>
-        </div>
-    </div>
     
     <script src="https://cdn.skypack.dev/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -317,6 +260,7 @@
         let isRunning = false;
         let players = new Map();
         let worldObjects = new Map();
+        let animationId = null;
         
         // Система дифференциальных обновлений
         let updateState = {
@@ -336,101 +280,105 @@
             return `${obj.id}|${obj.x}|${obj.z}|${obj.type}|${obj.color}`;
         }
         
-        // ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЙ (каждые 16.67 мс)
+        // ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЙ
         async function checkAndUpdateChanges() {
             const now = performance.now();
             
-            // 1. ПРОВЕРКА ИГРОКОВ
-            const { data: playersData } = await supabase
-                .from('positions')
-                .select('player_id, x, z, profiles(username)');
-            
-            if (playersData) {
-                const currentMap = new Map();
-                playersData.forEach(p => {
-                    currentMap.set(p.player_id, {
-                        str: getPlayerString(p),
-                        data: p
+            try {
+                // 1. ПРОВЕРКА ИГРОКОВ
+                const { data: playersData } = await supabase
+                    .from('positions')
+                    .select('player_id, x, z, profiles(username)');
+                
+                if (playersData && currentPlayer) {
+                    const currentMap = new Map();
+                    playersData.forEach(p => {
+                        if (p.player_id !== currentPlayer.id) {
+                            currentMap.set(p.player_id, {
+                                str: getPlayerString(p),
+                                data: p
+                            });
+                        }
                     });
-                });
-                
-                // Обновляем изменившихся
-                for (let [id, current] of currentMap) {
-                    const old = updateState.playersOld.get(id);
-                    if (!old || old.str !== current.str) {
-                        updatePlayerInGame(id, current.data);
-                    }
-                }
-                
-                // Удаляем вышедших
-                for (let [id] of updateState.playersOld) {
-                    if (!currentMap.has(id)) {
-                        removePlayerFromGame(id);
-                    }
-                }
-                
-                updateState.playersOld = currentMap;
-                document.getElementById('online-count').textContent = playersData.length + 1;
-            }
-            
-            // 2. ПРОВЕРКА ОБЪЕКТОВ
-            const { data: objectsData } = await supabase
-                .from('world_objects')
-                .select('*');
-            
-            if (objectsData) {
-                const currentMap = new Map();
-                objectsData.forEach(obj => {
-                    currentMap.set(obj.id, {
-                        str: getObjectString(obj),
-                        data: obj
-                    });
-                });
-                
-                for (let [id, current] of currentMap) {
-                    const old = updateState.objectsOld.get(id);
-                    if (!old || old.str !== current.str) {
-                        if (!old) {
-                            createWorldObject(current.data);
-                        } else {
-                            updateWorldObject(current.data);
+                    
+                    for (let [id, current] of currentMap) {
+                        const old = updateState.playersOld.get(id);
+                        if (!old || old.str !== current.str) {
+                            updatePlayerInGame(id, current.data);
                         }
                     }
+                    
+                    for (let [id] of updateState.playersOld) {
+                        if (!currentMap.has(id)) {
+                            removePlayerFromGame(id);
+                        }
+                    }
+                    
+                    updateState.playersOld = currentMap;
+                    document.getElementById('online-count').textContent = playersData.length + 1;
                 }
                 
-                for (let [id] of updateState.objectsOld) {
-                    if (!currentMap.has(id)) {
-                        removeWorldObject(id);
+                // 2. ПРОВЕРКА ОБЪЕКТОВ
+                const { data: objectsData } = await supabase
+                    .from('world_objects')
+                    .select('*');
+                
+                if (objectsData) {
+                    const currentMap = new Map();
+                    objectsData.forEach(obj => {
+                        currentMap.set(obj.id, {
+                            str: getObjectString(obj),
+                            data: obj
+                        });
+                    });
+                    
+                    for (let [id, current] of currentMap) {
+                        const old = updateState.objectsOld.get(id);
+                        if (!old || old.str !== current.str) {
+                            if (!old) {
+                                createWorldObject(current.data);
+                            } else {
+                                updateWorldObject(current.data);
+                            }
+                        }
                     }
+                    
+                    for (let [id] of updateState.objectsOld) {
+                        if (!currentMap.has(id)) {
+                            removeWorldObject(id);
+                        }
+                    }
+                    
+                    updateState.objectsOld = currentMap;
                 }
                 
-                updateState.objectsOld = currentMap;
-            }
-            
-            // 3. ПРОВЕРКА ЧАТА
-            const { data: messages } = await supabase
-                .from('messages')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(5);
-            
-            if (messages && messages.length > 0 && updateState.lastMessageId !== messages[0].id) {
-                messages.reverse().forEach(msg => {
-                    if (!updateState.lastMessageId || msg.id !== updateState.lastMessageId) {
-                        addMessageToChat(msg.username, msg.message);
-                    }
-                });
-                updateState.lastMessageId = messages[0]?.id;
-            }
-            
-            // Статистика
-            updateState.updatesPerSec++;
-            if (now - updateState.lastFpsTime >= 1000) {
-                document.getElementById('fps').textContent = updateState.frameCount;
-                document.getElementById('updates').textContent = updateState.updatesPerSec;
-                updateState.frameCount = 0;
-                updateState.updatesPerSec = 0;
-                updateState.lastFpsTime = now;
+                // 3. ПРОВЕРКА ЧАТА
+                const { data: messages } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(5);
+                
+                if (messages && messages.length > 0 && updateState.lastMessageId !== messages[0].id) {
+                    messages.reverse().forEach(msg => {
+                        if (!updateState.lastMessageId || msg.id !== updateState.lastMessageId) {
+                            addMessageToChat(msg.username, msg.message);
+                        }
+                    });
+                    updateState.lastMessageId = messages[0]?.id;
+                }
+                
+                // Статистика
+                updateState.updatesPerSec++;
+                if (now - updateState.lastFpsTime >= 1000) {
+                    document.getElementById('fps').textContent = updateState.frameCount;
+                    document.getElementById('updates').textContent = updateState.updatesPerSec;
+                    updateState.frameCount = 0;
+                    updateState.updatesPerSec = 0;
+                    updateState.lastFpsTime = now;
+                }
+            } catch (error) {
+                console.error('Update error:', error);
             }
         }
         
@@ -508,7 +456,10 @@
         }
         
         async function createObjectAtPlayer() {
-            if (!player) return;
+            if (!player || !currentPlayer) {
+                alert('Сначала войдите в игру!');
+                return;
+            }
             const name = document.getElementById('object-name').value || 'Объект';
             const type = document.getElementById('object-type').value;
             const color = document.getElementById('object-color').value;
@@ -540,7 +491,7 @@
                     <div class="object-item" onclick="window.deleteObject('${obj.id}')">
                         <div><strong>${obj.name || obj.type}</strong></div>
                         <div style="font-size:11px; color:#888;">X:${Math.round(obj.x)} Z:${Math.round(obj.z)}</div>
-                        <div style="font-size:10px; color:#e94560;">нажмите чтобы удалить</div>
+                        <div style="font-size:10px; color:#e94560;">✖ нажмите чтобы удалить</div>
                     </div>
                 `).join('');
             } else {
@@ -670,7 +621,7 @@
         }
         
         async function sendMessage(text) {
-            if (!text.trim()) return;
+            if (!text.trim() || !currentPlayer) return;
             await supabase.from('messages').insert({
                 player_id: currentPlayer.id,
                 username: currentPlayer.username,
@@ -716,14 +667,15 @@
             player.position.set(0, BASEPLATE_HEIGHT + 1, 0);
             scene.add(player);
             
-            setInterval(checkAndUpdateChanges, 16);
-            setInterval(updateObjectsList, 3000);
+            // Запускаем цикл обновлений
+            setInterval(() => checkAndUpdateChanges(), 100);
+            setInterval(() => updateObjectsList(), 3000);
             
             // Обновление списка игроков
             setInterval(async () => {
                 const { data } = await supabase.from('positions').select('player_id, profiles(username)');
                 const listDiv = document.getElementById('players-list');
-                if (data) {
+                if (data && listDiv) {
                     listDiv.innerHTML = `<div style="color:#4caf50;">⭐ ${currentPlayer.username} (Вы)</div>`;
                     data.forEach(p => {
                         if (p.player_id !== currentPlayer.id) {
@@ -734,53 +686,148 @@
             }, 3000);
         }
         
-        // ЗАПУСК
-        window.deleteObject = deleteObject;
-        
-        document.getElementById('login-btn').onclick = async () => {
+        // Функция входа
+        window.login = async function() {
             const username = document.getElementById('username-input').value.trim();
             if (!username || username.length < 2) {
                 alert('Введите имя (минимум 2 символа)');
                 return;
             }
             
-            supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            await supabase.auth.signInAnonymously();
-            
-            initThree();
-            setupControls();
-            await startGame(username);
-            
-            document.getElementById('login-modal').style.display = 'none';
-            
-            function animate() {
-                requestAnimationFrame(animate);
-                updateMovement();
-                updateState.frameCount++;
-                if (player) {
-                    camera.position.copy(player.position);
-                    camera.position.y += 1.5;
+            try {
+                // Инициализация Supabase
+                supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                await supabase.auth.signInAnonymously();
+                
+                // Инициализация Three.js
+                initThree();
+                setupControls();
+                await startGame(username);
+                
+                // Скрываем модалку и показываем интерфейс
+                document.getElementById('login-modal').style.display = 'none';
+                document.getElementById('hud').style.display = 'block';
+                document.getElementById('players-online').style.display = 'block';
+                document.getElementById('chat-container').style.display = 'block';
+                document.getElementById('performance').style.display = 'block';
+                
+                // Запускаем анимацию
+                function animate() {
+                    animationId = requestAnimationFrame(animate);
+                    updateMovement();
+                    updateState.frameCount++;
+                    if (player) {
+                        camera.position.copy(player.position);
+                        camera.position.y += 1.5;
+                    }
+                    renderer.render(scene, camera);
                 }
-                renderer.render(scene, camera);
-            }
-            animate();
-        };
-        
-        document.getElementById('toggle-hub').onclick = () => {
-            document.getElementById('creator-hub').classList.toggle('open');
-        };
-        
-        document.getElementById('create-object').onclick = createObjectAtPlayer;
-        document.getElementById('chat-send').onclick = () => {
-            const input = document.getElementById('chat-input');
-            if (input.value.trim()) {
-                sendMessage(input.value);
-                input.value = '';
+                animate();
+                
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Ошибка входа: ' + error.message);
             }
         };
-        document.getElementById('chat-input').onkeypress = (e) => {
-            if (e.key === 'Enter') document.getElementById('chat-send').click();
+        
+        // Назначаем обработчики после загрузки страницы
+        window.onload = function() {
+            const loginBtn = document.getElementById('login-btn');
+            if (loginBtn) {
+                loginBtn.onclick = window.login;
+            }
+            
+            const toggleHub = document.getElementById('toggle-hub');
+            if (toggleHub) {
+                toggleHub.onclick = () => {
+                    document.getElementById('creator-hub').classList.toggle('open');
+                };
+            }
+            
+            const createBtn = document.getElementById('create-object');
+            if (createBtn) {
+                createBtn.onclick = createObjectAtPlayer;
+            }
+            
+            const chatSend = document.getElementById('chat-send');
+            if (chatSend) {
+                chatSend.onclick = () => {
+                    const input = document.getElementById('chat-input');
+                    if (input.value.trim()) {
+                        sendMessage(input.value);
+                        input.value = '';
+                    }
+                };
+            }
+            
+            const chatInput = document.getElementById('chat-input');
+            if (chatInput) {
+                chatInput.onkeypress = (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('chat-send').click();
+                    }
+                };
+            }
         };
+        
+        window.deleteObject = deleteObject;
     </script>
+</head>
+<body>
+    <button id="toggle-hub">🎨 Creator Hub</button>
+    
+    <div id="creator-hub">
+        <div class="hub-header">
+            <h1>SoberBlox Creator Hub</h1>
+            <p>Создавайте и редактируйте мир</p>
+        </div>
+        
+        <div class="hub-section">
+            <h3>📦 Создать объект</h3>
+            <input type="text" id="object-name" placeholder="Название">
+            <select id="object-type">
+                <option value="block">Блок</option>
+                <option value="sphere">Сфера</option>
+                <option value="cylinder">Цилиндр</option>
+                <option value="tree">Дерево</option>
+            </select>
+            <input type="color" id="object-color" value="#e94560">
+            <button id="create-object">Создать на позиции</button>
+        </div>
+        
+        <div class="hub-section">
+            <h3>🗑️ Объекты в мире</h3>
+            <div id="objects-list">Загрузка...</div>
+        </div>
+    </div>
+    
+    <div id="hud" style="display: none;">
+        <div>📍 Позиция: <span id="pos">X:0 Z:0</span></div>
+    </div>
+    
+    <div id="players-online" style="display: none;">
+        <div>👥 Онлайн: <span id="online-count">0</span></div>
+        <div id="players-list"></div>
+    </div>
+    
+    <div id="chat-container" style="display: none;">
+        <div id="chat-messages"></div>
+        <div id="chat-input-container">
+            <input type="text" id="chat-input" placeholder="Напишите сообщение..." maxlength="200">
+            <button id="chat-send">➤</button>
+        </div>
+    </div>
+    
+    <div id="performance" style="display: none;">
+        FPS: <span id="fps">0</span> | Обн/сек: <span id="updates">0</span>
+    </div>
+    
+    <div id="login-modal">
+        <div class="login-box">
+            <h2>SoberBlox</h2>
+            <input type="text" id="username-input" placeholder="Введите имя игрока" maxlength="16">
+            <button id="login-btn">Войти в игру</button>
+        </div>
+    </div>
 </body>
 </html>
