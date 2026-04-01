@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SoberBlox - Creator Hub</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Основной интерфейс */
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        /* Creator Hub - панель управления */
+        #creator-hub {
+            position: absolute;
+            top: 0;
+            left: -400px;
+            width: 400px;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            z-index: 200;
+            transition: left 0.3s ease;
+            box-shadow: 2px 0 20px rgba(0,0,0,0.5);
+            overflow-y: auto;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        
+        #creator-hub.open {
+            left: 0;
+        }
+        
+        .hub-header {
+            background: #0f3460;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #e94560;
+        }
+        
+        .hub-header h1 {
+            font-size: 24px;
+            color: #e94560;
+        }
+        
+        .hub-header p {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+        
+        .hub-section {
+            padding: 20px;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        
+        .hub-section h3 {
+            color: #e94560;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        /* Объекты */
+        .object-item {
+            background: #0f0f1f;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid #e94560;
+        }
+        
+        .object-item:hover {
+            background: #1a1a2e;
+            transform: translateX(5px);
+        }
+        
+        .object-name {
+            font-weight: bold;
+            color: #e94560;
+        }
+        
+        .object-coords {
+            font-size: 11px;
+            color: #888;
+            margin-top: 5px;
+            font-family: monospace;
+        }
+        
+        /* Формы */
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            background: #0f0f1f;
+            border: 1px solid #2a2a4a;
+            color: white;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        button {
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background: #ff6b6b;
+            transform: scale(1.02);
+        }
+        
+        button.secondary {
+            background: #2a2a4a;
+        }
+        
+        button.secondary:hover {
+            background: #3a3a6a;
+        }
+        
+        /* Список объектов в мире */
+        .objects-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        /* HUD */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.2);
+            pointer-events: none;
+        }
+        
+        /* Кнопка открытия Creator Hub */
+        #toggle-hub {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 150;
+            font-weight: bold;
+            font-size: 14px;
+            pointer-events: auto;
+        }
+        
+        #toggle-hub:hover {
+            background: #ff6b6b;
+        }
+        
+        /* Чат */
+        #chat-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 350px;
+            background: rgba(0,0,0,0.85);
+            border-radius: 8px;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        #chat-messages {
+            height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            color: white;
+            font-size: 13px;
+        }
+        
+        .chat-message {
+            margin-bottom: 6px;
+            word-wrap: break-word;
+        }
+        
+        .chat-username {
+            color: #e94560;
+            font-weight: bold;
+        }
+        
+        #chat-input-container {
+            display: flex;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        #chat-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 10px;
+            color: white;
+            outline: none;
+            font-size: 13px;
+        }
+        
+        #players-online {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 100;
+            min-width: 150px;
+        }
+        
+        /* Индикатор производительности */
+        #performance {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.6);
+            color: #0f0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 10px;
+            z-index: 100;
+        }
+        
+        .badge {
+            display: inline-block;
+            background: #e94560;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <button id="toggle-hub">🎨 Creator Hub</button>
+    
+    <div id="creator-hub">
+        <div class="hub-header">
+            <h1>SoberBlox Creator Hub</h1>
+            <p>Создавайте и редактируйте мир</p>
+        </div>
+        
+        <div class="hub-section">
+            <h3>📦 Создать объект</h3>
+            <input type="text" id="object-name" placeholder="Название объекта">
+            <select id="object-type">
+                <option value="block">Блок</option>
+                <option value="sphere">Сфера</option>
+                <option value="cylinder">Цилиндр</option>
+                <option value="tree">Дерево</option>
+            </select>
+            <input type="color" id="object-color" value="#e94560">
+            <button id="create-object">Создать на позиции игрока</button>
+        </div>
+        
+        <div class="hub-section">
+            <h3>🗑️ Управление объектами</h3>
+            <div id="objects-list" class="objects-list">
+                <div style="color:#888; text-align:center;">Загрузка...</div>
+            </div>
+        </div>
+        
+        <div class="hub-section">
+            <h3>🌍 Информация о мире</h3>
+            <div id="world-stats">
+                <div>Объектов: <span id="total-objects">0</span></div>
+                <div>Игроков: <span id="hub-player-count">0</span></div>
+                <div>Обновлений/сек: <span id="updates-per-sec">0</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="hud">
+        <div>📍 Позиция: <span id="pos">X:0 Y:0 Z:0</span></div>
+        <div>🎨 Режим: <span id="mode">Игра</span></div>
+    </div>
+    
+    <div id="players-online">
+        <div>👥 Онлайн (<span id="online-count">0</span>)</div>
+        <div id="players-list"></div>
+    </div>
+    
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <div id="chat-input-container">
+            <input type="text" id="chat-input" placeholder="Напишите сообщение..." maxlength="200">
+            <button id="chat-send">➤</button>
+        </div>
+    </div>
+    
+    <div id="performance">
+        FPS: <span id="fps">0</span> | Обновлений: <span id="update-count">0</span>
+    </div>
+    
+    <div id="game-container"></div>
+    
+    <script src="https://cdn.skypack.dev/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script>
+        // ==================== КОНФИГУРАЦИЯ ====================
+        const SUPABASE_URL = 'https://ваш_проект.supabase.co';
+        const SUPABASE_ANON_KEY = 'ваш_anon_ключ';
+        
+        const BASEPLATE_SIZE = 2048;
+        const BASEPLATE_HEIGHT = -8;
+        
+        let supabase;
+        let currentPlayer = null;
+        let scene, camera, renderer, player;
+        let keys = {};
+        let mouseX = 0, mouseY = 0;
+        let isRunning = false;
+        let players = new Map();
+        let worldObjects = new Map(); // { id: { mesh, data } }
+        
+        // ==================== СИСТЕМА ДИФФЕРЕНЦИАЛЬНЫХ ОБНОВЛЕНИЙ ====================
+        let updateState = {
+            // Игроки
+            playersOld: new Map(),      // old_string представление
+            playersCurrent: new Map(),   // текущее состояние
+            
+            // Объекты мира
+            objectsOld: new Map(),
+            objectsCurrent: new Map(),
+            
+            // Чат
+            chatOld: [],
+            chatCurrent: [],
+            lastMessageId: null,
+            
+            // Статистика
+            updatesPerSecond: 0,
+            lastUpdateTime: performance.now(),
+            frameCount: 0,
+            fps: 0
+        };
+        
+        // Функция для создания строкового представления объекта (для сравнения)
+        function getObjectString(obj) {
+            return `${obj.id}|${obj.x}|${obj.y}|${obj.z}|${obj.type}|${obj.color}`;
+        }
+        
+        function getPlayerString(player) {
+            return `${player.id}|${player.x}|${player.z}|${player.rotation}`;
+        }
+        
+        // ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЙ (каждый кадр ~16.67 мс при 60 FPS)
+        let lastFrameTime = performance.now();
+        let frameInterval = 1000 / 60; // ~16.67 мс
+        
+        async function checkAndUpdateChanges() {
+            const now = performance.now();
+            const delta = now - lastFrameTime;
+            
+            // Если прошло меньше 16.67 мс, пропускаем
+            if (delta < frameInterval) return;
+            
+            lastFrameTime = now;
+            updateState.frameCount++;
+            
+            // 1. ПРОВЕРКА ИГРОКОВ
+            const { data: playersData } = await supabase
+                .from('positions')
+                .select('player_id, x, z, rotation_yaw, profiles(username)');
+            
+            if (playersData) {
+                // Создаем текущее строковое представление
+                const currentMap = new Map();
+                playersData.forEach(p => {
+                    const playerStr = getPlayerString({
+                        id: p.player_id,
+                        x: p.x,
+                        z: p.z,
+                        rotation: p.rotation_yaw || 0
+                    });
+                    currentMap.set(p.player_id, {
+                        str: playerStr,
+                        data: p
+                    });
+                });
+                
+                // Сравниваем с прошлым состоянием
+                for (let [id, current] of currentMap) {
+                    const old = updateState.playersOld.get(id);
+                    
+                    if (!old || old.str !== current.str) {
+                        // ИЗМЕНИЛОСЬ! Обновляем в игре
+                        updatePlayerInGame(id, current.data);
+                        console.log(`🔄 Игрок ${id} изменил позицию`);
+                    }
+                }
+                
+                // Проверяем удаленных игроков
+                for (let [id, old] of updateState.playersOld) {
+                    if (!currentMap.has(id)) {
+                        removePlayerFromGame(id);
+                        console.log(`❌ Игрок ${id} вышел`);
+                    }
+                }
+                
+                // Сохраняем текущее состояние как старое для следующего кадра
+                updateState.playersOld = currentMap;
+            }
+            
+            // 2. ПРОВЕРКА ОБЪЕКТОВ МИРА
+            const { data: objectsData } = await supabase
+                .from('world_objects')
+                .select('*')
+                .eq('world_id', 'main');
+            
+            if (objectsData) {
+                const currentMap = new Map();
+                objectsData.forEach(obj => {
+                    const objStr = getObjectString(obj);
+                    currentMap.set(obj.id, {
+                        str: objStr,
+                        data: obj
+                    });
+                });
+                
+                // Сравниваем и обновляем
+                for (let [id, current] of currentMap) {
+                    const old = updateState.objectsOld.get(id);
+                    
+                    if (!old || old.str !== current.str) {
+                        // СОЗДАНО или ИЗМЕНЕНО
+                        if (!old) {
+                            createWorldObject(current.data);
+                            console.log(`✨ Создан объект ${id}`);
+                        } else {
+                            updateWorldObject(current.data);
+                            console.log(`🔄 Обновлен объект ${id}`);
+                        }
+                    }
+                }
+                
+                // Проверяем удаленные объекты
+                for (let [id, old] of updateState.objectsOld) {
+                    if (!currentMap.has(id)) {
+                        removeWorldObject(id);
+                        console.log(`🗑️ Удален объект ${id}`);
+                    }
+                }
+                
+                updateState.objectsOld = currentMap;
+                document.getElementById('total-objects').textContent = objectsData.length;
+            }
+            
+            // 3. ПРОВЕРКА ЧАТА
+            const { data: messagesData } = await supabase
+                .from('messages')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(10);
+            
+            if (messagesData && messagesData.length > 0) {
+                const latestMessage = messagesData[0];
+                
+                if (updateState.lastMessageId !== latestMessage.id) {
+                    // Новые сообщения!
+                    messagesData.reverse().forEach(msg => {
+                        if (!updateState.chatOld.find(m => m.id === msg.id)) {
+                            addMessageToChat(msg.username, msg.message);
+                            console.log(`💬 Новое сообщение от ${msg.username}`);
+                        }
+                    });
+                    
+                    updateState.lastMessageId = latestMessage.id;
+                    updateState.chatOld = messagesData;
+                }
+            }
+            
+            // 4. ОБНОВЛЕНИЕ СТАТИСТИКИ
+            updateState.updatesPerSecond++;
+            
+            // Подсчет FPS
+            const timeSinceLastFps = now - updateState.lastUpdateTime;
+            if (timeSinceLastFps >= 1000) {
+                updateState.fps = updateState.frameCount;
+                updateState.frameCount = 0;
+                updateState.lastUpdateTime = now;
+                
+                document.getElementById('fps').textContent = updateState.fps;
+                document.getElementById('update-count').textContent = updateState.updatesPerSecond;
+                document.getElementById('updates-per-sec').textContent = updateState.updatesPerSecond;
+                
+                updateState.updatesPerSecond = 0;
+            }
+        }
+        
+        // ==================== ФУНКЦИИ ОБНОВЛЕНИЯ ИГРЫ ====================
+        function updatePlayerInGame(playerId, data) {
+            let playerObj = players.get(playerId);
+            
+            if (!playerObj) {
+                // Новый игрок
+                const color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+                const mesh = createPlayerModel(color);
+                scene.add(mesh);
+                playerObj = { mesh, username: data.profiles?.username || 'Игрок', lastPos: { x: 0, z: 0 } };
+                players.set(playerId, playerObj);
+            }
+            
+            playerObj.mesh.position.set(data.x, BASEPLATE_HEIGHT + 1, data.z);
+            
+            // Поворот
+            if (playerObj.lastPos.x !== data.x || playerObj.lastPos.z !== data.z) {
+                const angle = Math.atan2(data.x - playerObj.lastPos.x, data.z - playerObj.lastPos.z);
+                playerObj.mesh.rotation.y = angle;
+            }
+            
+            playerObj.lastPos = { x: data.x, z: data.z };
+        }
+        
+        function removePlayerFromGame(playerId) {
+            const playerObj = players.get(playerId);
+            if (playerObj) {
+                scene.remove(playerObj.mesh);
+                players.delete(playerId);
+            }
+        }
+        
+        function createWorldObject(data) {
+            let geometry, material;
+            const color = data.color || '#e94560';
+            
+            switch(data.type) {
+                case 'block':
+                    geometry = new THREE.BoxGeometry(1, 1, 1);
+                    break;
+                case 'sphere':
+                    geometry = new THREE.SphereGeometry(0.5, 32, 32);
+                    break;
+                case 'cylinder':
+                    geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+                    break;
+                case 'tree':
+                    // Простое дерево
+                    const group = new THREE.Group();
+                    const trunkGeo = new THREE.CylinderGeometry(0.4, 0.6, 1.2, 8);
+                    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
+                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                    trunk.position.y = 0.6;
+                    group.add(trunk);
+                    
+                    const foliageGeo = new THREE.ConeGeometry(0.8, 1.2, 8);
+                    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
+                    const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+                    foliage.position.y = 1.2;
+                    group.add(foliage);
+                    
+                    group.position.set(data.x, BASEPLATE_HEIGHT + 1, data.z);
+                    scene.add(group);
+                    
+                    worldObjects.set(data.id, { mesh: group, data });
+                    return;
+                default:
+                    geometry = new THREE.BoxGeometry(1, 1, 1);
+            }
+            
+            material = new THREE.MeshStandardMaterial({ color: color });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(data.x, BASEPLATE_HEIGHT + 0.5, data.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            
+            worldObjects.set(data.id, { mesh, data });
+        }
+        
+        function updateWorldObject(data) {
+            const existing = worldObjects.get(data.id);
+            if (existing) {
+                existing.mesh.position.set(data.x, BASEPLATE_HEIGHT + 0.5, data.z);
+                if (existing.mesh.material) {
+                    existing.mesh.material.color.set(data.color);
+                }
+                existing.data = data;
+            }
+        }
+        
+        function removeWorldObject(id) {
+            const obj = worldObjects.get(id);
+            if (obj) {
+                scene.remove(obj.mesh);
+                worldObjects.delete(id);
+            }
+        }
+        
+        // ==================== СОЗДАНИЕ НОВОГО ОБЪЕКТА ====================
+        async function createObjectAtPlayer() {
+            if (!currentPlayer || !player) return;
+            
+            const name = document.getElementById('object-name').value || 'Объект';
+            const type = document.getElementById('object-type').value;
+            const color = document.getElementById('object-color').value;
+            
+            const { data, error } = await supabase
+                .from('world_objects')
+                .insert({
+                    world_id: 'main',
+                    name: name,
+                    type: type,
+                    color: color,
+                    x: player.position.x,
+                    y: 0,
+                    z: player.position.z,
+                    owner_id: currentPlayer.id
+                })
+                .select();
+            
+            if (error) {
+                console.error('Ошибка создания:', error);
+                alert('Ошибка создания объекта');
+            } else {
+                console.log('Объект создан:', data);
+                document.getElementById('object-name').value = '';
+            }
+        }
+        
+        async function deleteObject(id) {
+            await supabase
+                .from('world_objects')
+                .delete()
+                .eq('id', id);
+        }
+        
+        // ==================== THREE.JS ИНИЦИАЛИЗАЦИЯ ====================
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 500, 1500);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('game-container').appendChild(renderer.domElement);
+            
+            // Свет
+            const ambientLight = new THREE.AmbientLight(0x404060);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(10, 30, 5);
+            directionalLight.castShadow = true;
+            directionalLight.receiveShadow = true;
+            scene.add(directionalLight);
+            
+            const fillLight = new THREE.PointLight(0x4466cc, 0.3);
+            fillLight.position.set(-5, 10, -10);
+            scene.add(fillLight);
+            
+            // Baseplate
+            const baseplateGeo = new THREE.BoxGeometry(BASEPLATE_SIZE, 16, BASEPLATE_SIZE);
+            const baseplateMat = new THREE.MeshStandardMaterial({ color: 0x6B4E3A, roughness: 0.8 });
+            const baseplate = new THREE.Mesh(baseplateGeo, baseplateMat);
+            baseplate.position.set(0, BASEPLATE_HEIGHT, 0);
+            baseplate.receiveShadow = true;
+            scene.add(baseplate);
+            
+            // Трава
+            const grassMat = new THREE.MeshStandardMaterial({ color: 0x5A9E4E, roughness: 0.9 });
+            const grass = new THREE.Mesh(new THREE.PlaneGeometry(BASEPLATE_SIZE, BASEPLATE_SIZE), grassMat);
+            grass.rotation.x = -Math.PI / 2;
+            grass.position.y = BASEPLATE_HEIGHT + 8.1;
+            grass.receiveShadow = true;
+            scene.add(grass);
+            
+            // Спавн платформа
+            const spawnMat = new THREE.MeshStandardMaterial({ color: 0x4caf50, emissive: 0x1a4d1a, transparent: true });
+            const spawnPlate = new THREE.Mesh(new THREE.BoxGeometry(12, 1, 12), spawnMat);
+            spawnPlate.position.set(0, BASEPLATE_HEIGHT + 7.5, 0);
+            scene.add(spawnPlate);
+        }
+        
+        function createPlayerModel(color) {
+            const group = new THREE.Group();
+            
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.8), new THREE.MeshStandardMaterial({ color: color }));
+            body.position.y = 0.6;
+            body.castShadow = true;
+            group.add(body);
+            
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), new THREE.MeshStandardMaterial({ color: 0xFFDDB7 }));
+            head.position.y = 1.2;
+            head.castShadow = true;
+            group.add(head);
+            
+            return group;
+        }
+        
+        // ==================== УПРАВЛЕНИЕ ====================
+        function setupControls() {
+            document.addEventListener('keydown', (e) => {
+                keys[e.code] = true;
+                if (e.code === 'Enter' && document.activeElement !== document.getElementById('chat-input')) {
+                    document.getElementById('chat-input').focus();
+                }
+                if (e.code === 'ShiftLeft') isRunning = true;
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                keys[e.code] = false;
+                if (e.code === 'ShiftLeft') isRunning = false;
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!document.pointerLockElement) return;
+                mouseX += e.movementX * 0.002;
+                mouseY += e.movementY * 0.002;
+                mouseY = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, mouseY));
+                
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = mouseX;
+                camera.rotation.x = mouseY;
+            });
+            
+            renderer.domElement.addEventListener('click', () => {
+                renderer.domElement.requestPointerLock();
+            });
+        }
+        
+        function updateMovement() {
+            if (!player) return;
+            
+            const speed = isRunning ? 15 : 7;
+            let moveX = 0, moveZ = 0;
+            
+            if (keys['KeyW']) moveZ -= 1;
+            if (keys['KeyS']) moveZ += 1;
+            if (keys['KeyA']) moveX -= 1;
+            if (keys['KeyD']) moveX += 1;
+            
+            if (moveX !== 0 || moveZ !== 0) {
+                const len = Math.hypot(moveX, moveZ);
+                moveX /= len;
+                moveZ /= len;
+                
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                
+                const newX = player.position.x + (moveX * right.x + moveZ * forward.x) * speed * 0.016;
+                const newZ = player.position.z + (moveX * right.z + moveZ * forward.z) * speed * 0.016;
+                
+                const limit = BASEPLATE_SIZE / 2 - 1;
+                player.position.x = Math.max(-limit, Math.min(limit, newX));
+                player.position.z = Math.max(-limit, Math.min(limit, newZ));
+                
+                // Отправляем позицию в БД
+                supabase
+                    .from('positions')
+                    .upsert({
+                        player_id: currentPlayer.id,
+                        x: player.position.x,
+                        z: player.position.z,
+                        rotation_yaw: mouseX,
+                        updated_at: new Date()
+                    });
+                
+                document.getElementById('pos').textContent = `X:${Math.round(player.position.x)} Y:0 Z:${Math.round(player.position.z)}`;
+            }
+        }
+        
+        // ==================== ЧАТ ====================
+        async function sendMessage(text) {
+            if (!text.trim() || !currentPlayer) return;
+            
+            await supabase
+                .from('messages')
+                .insert({
+                    player_id: currentPlayer.id,
+                    username: currentPlayer.username,
+                    message: text.slice(0, 200),
+                    created_at: new Date()
+                });
+        }
+        
+        function addMessageToChat(username, message) {
+            const chatDiv = document.getElementById('chat-messages');
+            const msgElement = document.createElement('div');
+            msgElement.className = 'chat-message';
+            msgElement.innerHTML = `<span class="chat-username">${escapeHtml(username)}:</span> ${escapeHtml(message)}`;
+            chatDiv.appendChild(msgElement);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+            
+            while (chatDiv.children.length > 100) {
+                chatDiv.removeChild(chatDiv.firstChild);
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // ==================== ЗАПУСК ====================
+        async function startGame(username) {
+            currentPlayer = {
+                id: crypto.randomUUID(),
+                username: username
+            };
+            
+            await supabase.from('profiles').upsert({
+                id: currentPlayer.id,
+                username: currentPlayer.username,
+                last_seen: new Date()
+            });
+            
+            await supabase.from('positions').upsert({
+                player_id: currentPlayer.id,
+                x: 0,
+                z: 0,
+                rotation_yaw: 0,
+                updated_at: new Date()
+            });
+            
+            // Создаем игрока
+            player = createPlayerModel(0x4caf50);
+            player.position.set(0, BASEPLATE_HEIGHT + 1, 0);
+            scene.add(player);
+            
+            // Запускаем цикл обновлений
+            setInterval(checkAndUpdateChanges, 16); // ~60 FPS
+            
+            // Обновляем список объектов в Creator Hub
+            setInterval(updateObjectsList, 3000);
+        }
+        
+        async function updateObjectsList() {
+            const { data } = await supabase
+                .from('world_objects')
+                .select('*')
+                .eq('world_id', 'main');
+            
+            const container = document.getElementById('objects-list');
+            if (data && data.length > 0) {
+                container.innerHTML = data.map(obj => `
+                    <div class="object-item" onclick="deleteObject('${obj.id}')">
+                        <div class="object-name">${escapeHtml(obj.name || obj.type)}</div>
+                        <div class="object-coords">X:${Math.round(obj.x)} Z:${Math.round(obj.z)}</div>
+                        <div style="font-size:10px; color:#888;">нажмите чтобы удалить</div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div style="color:#888; text-align:center;">Нет объектов</div>';
+            }
+        }
+        
+        // ==================== ИНИЦИАЛИЗАЦИЯ ====================
+        window.deleteObject = deleteObject;
+        
+        document.getElementById('login-btn')?.addEventListener('click', async () => {
+            const username = document.getElementById('username-input')?.value.trim();
+            if (!username) return;
+            
+            supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await supabase.auth.signInAnonymously();
+            
+            initThree();
+            setupControls();
+            await startGame(username);
+            
+            document.getElementById('login-modal')?.remove();
+            
+            // Анимационный цикл
+            function animate() {
+                requestAnimationFrame(animate);
+                updateMovement();
+                if (player) {
+                    camera.position.copy(player.position);
+                    camera.position.y += 1.5;
+                }
+                renderer.render(scene, camera);
+            }
+            animate();
+        });
+        
+        // Creator Hub toggle
+        document.getElementById('toggle-hub').onclick = () => {
+            document.getElementById('creator-hub').classList.toggle('open');
+        };
+        
+        document.getElementById('create-object').onclick = createObjectAtPlayer;
+        document.getElementById('chat-send').onclick = () => {
+            const input = document.getElementById('chat-input');
+            if (input.value.trim()) {
+                sendMessage(input.value);
+                input.value = '';
+            }
+        };
+        
+        // Временная модалка входа (если нет)
+        if (!document.getElementById('login-modal')) {
+            const modal = document.createElement('div');
+            modal.id = 'login-modal';
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);display:flex;justify-content:center;align-items:center;z-index:1000;';
+            modal.innerHTML = `
+                <div style="background:#1e1e1e;padding:30px;border-radius:16px;text-align:center;">
+                    <h2 style="color:#e94560;">SoberBlox</h2>
+                    <input type="text" id="username-input" placeholder="Введите имя" style="display:block;width:250px;padding:12px;margin:10px 0;background:#2d2d2d;border:1px solid #444;color:white;border-radius:8px;">
+                    <button id="login-btn" style="background:#e94560;color:white;border:none;padding:10px 30px;border-radius:8px;cursor:pointer;">Войти</button>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            document.getElementById('login-btn').onclick = () => {
+                const username = document.getElementById('username-input').value;
+                if (username) {
+                    modal.remove();
+                    document.getElementById('login-btn').click();
+                }
+            };
+        }
+    </script>
+</body>
+</html>
