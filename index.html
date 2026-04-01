@@ -9,6 +9,7 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            user-select: none;
         }
         
         body {
@@ -16,7 +17,6 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
-        /* Creator Hub */
         #creator-hub {
             position: absolute;
             top: 0;
@@ -239,9 +239,22 @@
             padding: 12px 40px;
             font-size: 16px;
         }
+        
+        .controls-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+            font-family: monospace;
+            z-index: 100;
+            pointer-events: none;
+        }
     </style>
     
-    <!-- Правильное подключение Three.js -->
     <script type="importmap">
         {
             "imports": {
@@ -253,7 +266,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <script type="module">
-        // Импорт Three.js
         import * as THREE from 'three';
         
         // ==================== КОНФИГУРАЦИЯ ====================
@@ -266,157 +278,98 @@
         let supabase;
         let currentPlayer = null;
         let scene, camera, renderer, playerMesh;
-        let keys = {};
+        let keys = { w: false, s: false, a: false, d: false };
         let mouseX = 0, mouseY = 0;
         let isRunning = false;
         let players = new Map();
         let worldObjects = new Map();
-        let animationId = null;
-        let updateInterval, playerListInterval, objectsInterval;
+        let lastUpdateTime = 0;
         
-        // Система дифференциальных обновлений
-        let updateState = {
-            playersOld: new Map(),
-            objectsOld: new Map(),
-            lastMessageId: null,
-            updatesPerSec: 0,
-            lastFpsTime: performance.now(),
-            frameCount: 0
-        };
-        
-        function getPlayerString(p) {
-            return `${p.player_id}|${Math.round(p.x)}|${Math.round(p.z)}`;
+        // Исправленное управление
+        function handleKeyDown(e) {
+            switch(e.code) {
+                case 'KeyW': keys.w = true; e.preventDefault(); break;
+                case 'KeyS': keys.s = true; e.preventDefault(); break;
+                case 'KeyA': keys.a = true; e.preventDefault(); break;
+                case 'KeyD': keys.d = true; e.preventDefault(); break;
+                case 'ShiftLeft': isRunning = true; e.preventDefault(); break;
+                case 'Enter':
+                    if (document.activeElement !== document.getElementById('chat-input')) {
+                        document.getElementById('chat-input').focus();
+                        e.preventDefault();
+                    }
+                    break;
+            }
         }
         
-        function getObjectString(obj) {
-            return `${obj.id}|${obj.x}|${obj.z}|${obj.type}|${obj.color}`;
+        function handleKeyUp(e) {
+            switch(e.code) {
+                case 'KeyW': keys.w = false; break;
+                case 'KeyS': keys.s = false; break;
+                case 'KeyA': keys.a = false; break;
+                case 'KeyD': keys.d = false; break;
+                case 'ShiftLeft': isRunning = false; break;
+            }
         }
         
-        // ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЙ
-        async function checkAndUpdateChanges() {
-            const now = performance.now();
+        // Исправленное движение (W=вперед, S=назад, A=влево, D=вправо)
+        function updateMovement() {
+            if (!playerMesh) return;
             
-            try {
-                // 1. ПРОВЕРКА ИГРОКОВ
-                const { data: playersData } = await supabase
-                    .from('positions')
-                    .select('player_id, x, z, profiles(username)');
+            const speed = isRunning ? 20 : 10;
+            let moveX = 0, moveZ = 0;
+            
+            if (keys.w) moveZ -= 1;
+            if (keys.s) moveZ += 1;
+            if (keys.a) moveX -= 1;
+            if (keys.d) moveX += 1;
+            
+            if (moveX !== 0 || moveZ !== 0) {
+                const len = Math.hypot(moveX, moveZ);
+                moveX /= len;
+                moveZ /= len;
                 
-                if (playersData && currentPlayer) {
-                    const currentMap = new Map();
-                    playersData.forEach(p => {
-                        if (p.player_id !== currentPlayer.id) {
-                            currentMap.set(p.player_id, {
-                                str: getPlayerString(p),
-                                data: p
-                            });
-                        }
-                    });
-                    
-                    for (let [id, current] of currentMap) {
-                        const old = updateState.playersOld.get(id);
-                        if (!old || old.str !== current.str) {
-                            updatePlayerInGame(id, current.data);
-                        }
-                    }
-                    
-                    for (let [id] of updateState.playersOld) {
-                        if (!currentMap.has(id)) {
-                            removePlayerFromGame(id);
-                        }
-                    }
-                    
-                    updateState.playersOld = currentMap;
-                    const onlineCount = document.getElementById('online-count');
-                    if (onlineCount) onlineCount.textContent = playersData.length + 1;
+                // Движение относительно камеры
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                
+                playerMesh.position.x += (moveX * right.x + moveZ * forward.x) * speed * 0.016;
+                playerMesh.position.z += (moveX * right.z + moveZ * forward.z) * speed * 0.016;
+                
+                // Ограничение
+                const limit = BASEPLATE_SIZE / 2 - 2;
+                playerMesh.position.x = Math.max(-limit, Math.min(limit, playerMesh.position.x));
+                playerMesh.position.z = Math.max(-limit, Math.min(limit, playerMesh.position.z));
+                
+                // Отправляем позицию в БД
+                if (currentPlayer && Date.now() - lastUpdateTime > 50) {
+                    lastUpdateTime = Date.now();
+                    supabase.from('positions').upsert({
+                        player_id: currentPlayer.id,
+                        x: playerMesh.position.x,
+                        z: playerMesh.position.z,
+                        rotation_yaw: mouseX,
+                        updated_at: new Date()
+                    }).catch(console.error);
                 }
                 
-                // 2. ПРОВЕРКА ОБЪЕКТОВ
-                const { data: objectsData } = await supabase
-                    .from('world_objects')
-                    .select('*');
-                
-                if (objectsData) {
-                    const currentMap = new Map();
-                    objectsData.forEach(obj => {
-                        currentMap.set(obj.id, {
-                            str: getObjectString(obj),
-                            data: obj
-                        });
-                    });
-                    
-                    for (let [id, current] of currentMap) {
-                        const old = updateState.objectsOld.get(id);
-                        if (!old || old.str !== current.str) {
-                            if (!old) {
-                                createWorldObject(current.data);
-                            } else {
-                                updateWorldObject(current.data);
-                            }
-                        }
-                    }
-                    
-                    for (let [id] of updateState.objectsOld) {
-                        if (!currentMap.has(id)) {
-                            removeWorldObject(id);
-                        }
-                    }
-                    
-                    updateState.objectsOld = currentMap;
-                }
-                
-                // 3. ПРОВЕРКА ЧАТА
-                const { data: messages } = await supabase
-                    .from('messages')
-                    .select('*')
-                    .order('created_at', { ascending: false })
-                    .limit(5);
-                
-                if (messages && messages.length > 0 && updateState.lastMessageId !== messages[0].id) {
-                    messages.reverse().forEach(msg => {
-                        if (!updateState.lastMessageId || msg.id !== updateState.lastMessageId) {
-                            addMessageToChat(msg.username, msg.message);
-                        }
-                    });
-                    updateState.lastMessageId = messages[0]?.id;
-                }
-                
-                // Статистика
-                updateState.updatesPerSec++;
-                if (now - updateState.lastFpsTime >= 1000) {
-                    const fpsSpan = document.getElementById('fps');
-                    const updatesSpan = document.getElementById('updates');
-                    if (fpsSpan) fpsSpan.textContent = updateState.frameCount;
-                    if (updatesSpan) updatesSpan.textContent = updateState.updatesPerSec;
-                    updateState.frameCount = 0;
-                    updateState.updatesPerSec = 0;
-                    updateState.lastFpsTime = now;
-                }
-            } catch (error) {
-                console.error('Update error:', error);
+                document.getElementById('pos').textContent = `X:${Math.round(playerMesh.position.x)} Z:${Math.round(playerMesh.position.z)}`;
             }
         }
         
-        function updatePlayerInGame(id, data) {
-            let playerObj = players.get(id);
-            if (!playerObj) {
-                const color = `hsl(${Math.random() * 360}, 70%, 50%)`;
-                const geometry = new THREE.BoxGeometry(0.8, 1.2, 0.8);
-                const material = new THREE.MeshStandardMaterial({ color: color });
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.castShadow = true;
-                scene.add(mesh);
-                playerObj = { mesh, username: data.profiles?.username || 'Игрок' };
-                players.set(id, playerObj);
-            }
-            playerObj.mesh.position.set(data.x, BASEPLATE_HEIGHT + 1, data.z);
-        }
-        
-        function removePlayerFromGame(id) {
-            const obj = players.get(id);
-            if (obj) {
-                scene.remove(obj.mesh);
-                players.delete(id);
+        // Функции для объектов
+        async function loadWorldObjects() {
+            const { data } = await supabase.from('world_objects').select('*');
+            if (data) {
+                // Очищаем старые объекты
+                worldObjects.forEach((obj, id) => {
+                    scene.remove(obj.mesh);
+                });
+                worldObjects.clear();
+                
+                // Создаем новые
+                data.forEach(obj => createWorldObject(obj));
+                updateObjectsList();
             }
         }
         
@@ -439,18 +392,12 @@
                     break;
                 case 'tree':
                     const group = new THREE.Group();
-                    const trunkGeo = new THREE.CylinderGeometry(0.4, 0.6, 1.2);
-                    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
-                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 1.2), new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
                     trunk.position.y = 0.6;
                     group.add(trunk);
-                    
-                    const foliageGeo = new THREE.ConeGeometry(0.8, 1.2, 8);
-                    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
-                    const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+                    const foliage = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.2, 8), new THREE.MeshStandardMaterial({ color: 0x4caf50 }));
                     foliage.position.y = 1.2;
                     group.add(foliage);
-                    
                     group.position.set(data.x, BASEPLATE_HEIGHT + 1, data.z);
                     scene.add(group);
                     worldObjects.set(data.id, { mesh: group, data });
@@ -467,22 +414,6 @@
             worldObjects.set(data.id, { mesh, data });
         }
         
-        function updateWorldObject(data) {
-            const existing = worldObjects.get(data.id);
-            if (existing) {
-                existing.mesh.position.set(data.x, BASEPLATE_HEIGHT + 0.5, data.z);
-                if (existing.mesh.material) existing.mesh.material.color.set(data.color);
-            }
-        }
-        
-        function removeWorldObject(id) {
-            const obj = worldObjects.get(id);
-            if (obj) {
-                scene.remove(obj.mesh);
-                worldObjects.delete(id);
-            }
-        }
-        
         async function createObjectAtPlayer() {
             if (!playerMesh || !currentPlayer) {
                 alert('Сначала войдите в игру!');
@@ -492,7 +423,7 @@
             const type = document.getElementById('object-type').value;
             const color = document.getElementById('object-color').value;
             
-            await supabase.from('world_objects').insert({
+            const { error } = await supabase.from('world_objects').insert({
                 name: name,
                 type: type,
                 color: color,
@@ -502,13 +433,18 @@
                 owner_id: currentPlayer.id
             });
             
-            document.getElementById('object-name').value = '';
-            updateObjectsList();
+            if (error) {
+                console.error('Error creating object:', error);
+                alert('Ошибка создания: ' + error.message);
+            } else {
+                document.getElementById('object-name').value = '';
+                loadWorldObjects(); // Перезагружаем объекты
+            }
         }
         
         async function deleteObject(id) {
             await supabase.from('world_objects').delete().eq('id', id);
-            updateObjectsList();
+            loadWorldObjects();
         }
         
         async function updateObjectsList() {
@@ -517,7 +453,7 @@
             if (data && data.length > 0) {
                 container.innerHTML = data.map(obj => `
                     <div class="object-item" onclick="window.deleteObject('${obj.id}')">
-                        <div><strong>${obj.name || obj.type}</strong></div>
+                        <div><strong>${escapeHtml(obj.name || obj.type)}</strong></div>
                         <div style="font-size:11px; color:#888;">X:${Math.round(obj.x)} Z:${Math.round(obj.z)}</div>
                         <div style="font-size:10px; color:#e94560;">✖ нажмите чтобы удалить</div>
                     </div>
@@ -527,7 +463,97 @@
             }
         }
         
-        // THREE.JS
+        // Загрузка других игроков
+        async function loadOtherPlayers() {
+            const { data } = await supabase.from('positions').select('player_id, x, z, profiles(username)');
+            if (data && currentPlayer) {
+                data.forEach(p => {
+                    if (p.player_id !== currentPlayer.id) {
+                        let playerObj = players.get(p.player_id);
+                        if (!playerObj) {
+                            const geometry = new THREE.BoxGeometry(0.8, 1.2, 0.8);
+                            const material = new THREE.MeshStandardMaterial({ color: 0xff6b6b });
+                            const mesh = new THREE.Mesh(geometry, material);
+                            mesh.castShadow = true;
+                            scene.add(mesh);
+                            playerObj = { mesh, username: p.profiles?.username || 'Игрок' };
+                            players.set(p.player_id, playerObj);
+                        }
+                        playerObj.mesh.position.set(p.x, BASEPLATE_HEIGHT + 1, p.z);
+                    }
+                });
+                
+                // Обновляем список онлайн
+                document.getElementById('online-count').textContent = data.length + 1;
+                const listDiv = document.getElementById('players-list');
+                listDiv.innerHTML = `<div style="color:#4caf50;">⭐ ${currentPlayer.username} (Вы)</div>`;
+                data.forEach(p => {
+                    if (p.player_id !== currentPlayer.id) {
+                        listDiv.innerHTML += `<div>👤 ${escapeHtml(p.profiles?.username || 'Игрок')}</div>`;
+                    }
+                });
+            }
+        }
+        
+        // Чат
+        async function sendMessage(text) {
+            if (!text.trim() || !currentPlayer) return;
+            await supabase.from('messages').insert({
+                player_id: currentPlayer.id,
+                username: currentPlayer.username,
+                message: text.slice(0, 200),
+                created_at: new Date()
+            });
+        }
+        
+        async function loadMessages() {
+            const { data } = await supabase.from('messages').select('*').order('created_at', { ascending: true }).limit(30);
+            const chatDiv = document.getElementById('chat-messages');
+            if (data && chatDiv) {
+                chatDiv.innerHTML = '';
+                data.forEach(msg => {
+                    chatDiv.innerHTML += `<div class="chat-message"><span class="chat-username">${escapeHtml(msg.username)}:</span> ${escapeHtml(msg.message)}</div>`;
+                });
+                chatDiv.scrollTop = chatDiv.scrollHeight;
+            }
+        }
+        
+        function subscribeToRealtime() {
+            // Подписка на изменения позиций
+            supabase.channel('positions-channel')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'positions' }, (payload) => {
+                    if (payload.new && payload.new.player_id !== currentPlayer?.id) {
+                        loadOtherPlayers();
+                    }
+                })
+                .subscribe();
+            
+            // Подписка на новые объекты
+            supabase.channel('objects-channel')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'world_objects' }, () => {
+                    loadWorldObjects();
+                })
+                .subscribe();
+            
+            // Подписка на новые сообщения
+            supabase.channel('messages-channel')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+                    if (payload.new) {
+                        const chatDiv = document.getElementById('chat-messages');
+                        chatDiv.innerHTML += `<div class="chat-message"><span class="chat-username">${escapeHtml(payload.new.username)}:</span> ${escapeHtml(payload.new.message)}</div>`;
+                        chatDiv.scrollTop = chatDiv.scrollHeight;
+                    }
+                })
+                .subscribe();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // THREE.JS инициализация
         function initThree() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
@@ -539,6 +565,7 @@
             renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
             
+            // Свет
             const ambientLight = new THREE.AmbientLight(0x404060);
             scene.add(ambientLight);
             
@@ -571,22 +598,13 @@
         }
         
         function setupControls() {
-            document.addEventListener('keydown', (e) => {
-                keys[e.code] = true;
-                if (e.code === 'Enter' && document.activeElement !== document.getElementById('chat-input')) {
-                    document.getElementById('chat-input').focus();
-                }
-                if (e.code === 'ShiftLeft') isRunning = true;
-            });
-            document.addEventListener('keyup', (e) => {
-                keys[e.code] = false;
-                if (e.code === 'ShiftLeft') isRunning = false;
-            });
+            document.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('keyup', handleKeyUp);
             document.addEventListener('mousemove', (e) => {
                 if (!document.pointerLockElement) return;
-                mouseX += e.movementX * 0.002;
-                mouseY += e.movementY * 0.002;
-                mouseY = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, mouseY));
+                mouseX += e.movementX * 0.003;
+                mouseY += e.movementY * 0.003;
+                mouseY = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, mouseY));
                 camera.rotation.order = 'YXZ';
                 camera.rotation.y = mouseX;
                 camera.rotation.x = mouseY;
@@ -596,77 +614,20 @@
             });
         }
         
-        function updateMovement() {
-            if (!playerMesh) return;
-            const speed = isRunning ? 15 : 7;
-            let moveX = 0, moveZ = 0;
-            if (keys['KeyW']) moveZ -= 1;
-            if (keys['KeyS']) moveZ += 1;
-            if (keys['KeyA']) moveX -= 1;
-            if (keys['KeyD']) moveX += 1;
-            
-            if (moveX !== 0 || moveZ !== 0) {
-                const len = Math.hypot(moveX, moveZ);
-                moveX /= len;
-                moveZ /= len;
-                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                playerMesh.position.x += (moveX * right.x + moveZ * forward.x) * speed * 0.016;
-                playerMesh.position.z += (moveX * right.z + moveZ * forward.z) * speed * 0.016;
-                
-                const limit = BASEPLATE_SIZE / 2 - 1;
-                playerMesh.position.x = Math.max(-limit, Math.min(limit, playerMesh.position.x));
-                playerMesh.position.z = Math.max(-limit, Math.min(limit, playerMesh.position.z));
-                
-                supabase.from('positions').upsert({
-                    player_id: currentPlayer.id,
-                    x: playerMesh.position.x,
-                    z: playerMesh.position.z,
-                    rotation_yaw: mouseX,
-                    updated_at: new Date()
-                });
-                
-                const posSpan = document.getElementById('pos');
-                if (posSpan) posSpan.textContent = `X:${Math.round(playerMesh.position.x)} Z:${Math.round(playerMesh.position.z)}`;
-            }
-        }
-        
-        async function sendMessage(text) {
-            if (!text.trim() || !currentPlayer) return;
-            await supabase.from('messages').insert({
-                player_id: currentPlayer.id,
-                username: currentPlayer.username,
-                message: text.slice(0, 200),
-                created_at: new Date()
-            });
-        }
-        
-        function addMessageToChat(username, message) {
-            const chatDiv = document.getElementById('chat-messages');
-            if (!chatDiv) return;
-            chatDiv.innerHTML += `<div class="chat-message"><span class="chat-username">${escapeHtml(username)}:</span> ${escapeHtml(message)}</div>`;
-            chatDiv.scrollTop = chatDiv.scrollHeight;
-            if (chatDiv.children.length > 100) chatDiv.removeChild(chatDiv.firstChild);
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
         async function startGame(username) {
             currentPlayer = {
                 id: crypto.randomUUID(),
                 username: username
             };
             
+            // Создаем профиль
             await supabase.from('profiles').upsert({
                 id: currentPlayer.id,
                 username: currentPlayer.username,
                 last_seen: new Date()
             });
             
+            // Создаем позицию
             await supabase.from('positions').upsert({
                 player_id: currentPlayer.id,
                 x: 0,
@@ -683,25 +644,19 @@
             playerMesh.position.set(0, BASEPLATE_HEIGHT + 1, 0);
             scene.add(playerMesh);
             
-            // Запускаем интервалы
-            if (updateInterval) clearInterval(updateInterval);
-            if (playerListInterval) clearInterval(playerListInterval);
-            if (objectsInterval) clearInterval(objectsInterval);
+            // Загружаем данные
+            await loadWorldObjects();
+            await loadOtherPlayers();
+            await loadMessages();
             
-            updateInterval = setInterval(() => checkAndUpdateChanges(), 100);
-            playerListInterval = setInterval(async () => {
-                const { data } = await supabase.from('positions').select('player_id, profiles(username)');
-                const listDiv = document.getElementById('players-list');
-                if (data && listDiv && currentPlayer) {
-                    listDiv.innerHTML = `<div style="color:#4caf50;">⭐ ${currentPlayer.username} (Вы)</div>`;
-                    data.forEach(p => {
-                        if (p.player_id !== currentPlayer.id) {
-                            listDiv.innerHTML += `<div>👤 ${p.profiles?.username || 'Игрок'}</div>`;
-                        }
-                    });
-                }
-            }, 3000);
-            objectsInterval = setInterval(() => updateObjectsList(), 3000);
+            // Подписываемся на realtime
+            subscribeToRealtime();
+            
+            // Периодические обновления
+            setInterval(() => {
+                loadOtherPlayers();
+                updateObjectsList();
+            }, 2000);
         }
         
         // Функция входа
@@ -713,34 +668,21 @@
             }
             
             try {
-                // Инициализация Supabase
                 supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 await supabase.auth.signInAnonymously();
                 
-                // Инициализация Three.js
                 initThree();
                 setupControls();
                 await startGame(username);
                 
-                // Скрываем модалку и показываем интерфейс
-                const modal = document.getElementById('login-modal');
-                if (modal) modal.style.display = 'none';
+                document.getElementById('login-modal').style.display = 'none';
+                document.getElementById('hud').style.display = 'block';
+                document.getElementById('players-online').style.display = 'block';
+                document.getElementById('chat-container').style.display = 'block';
                 
-                const hud = document.getElementById('hud');
-                const playersOnline = document.getElementById('players-online');
-                const chatContainer = document.getElementById('chat-container');
-                const performance = document.getElementById('performance');
-                
-                if (hud) hud.style.display = 'block';
-                if (playersOnline) playersOnline.style.display = 'block';
-                if (chatContainer) chatContainer.style.display = 'block';
-                if (performance) performance.style.display = 'block';
-                
-                // Запускаем анимацию
                 function animate() {
-                    animationId = requestAnimationFrame(animate);
+                    requestAnimationFrame(animate);
                     updateMovement();
-                    updateState.frameCount++;
                     if (playerMesh) {
                         camera.position.copy(playerMesh.position);
                         camera.position.y += 1.5;
@@ -755,46 +697,22 @@
             }
         };
         
-        // Назначаем обработчики после загрузки страницы
         window.onload = function() {
-            const loginBtn = document.getElementById('login-btn');
-            if (loginBtn) {
-                loginBtn.onclick = window.login;
-            }
-            
-            const toggleHub = document.getElementById('toggle-hub');
-            if (toggleHub) {
-                toggleHub.onclick = () => {
-                    const hub = document.getElementById('creator-hub');
-                    if (hub) hub.classList.toggle('open');
-                };
-            }
-            
-            const createBtn = document.getElementById('create-object');
-            if (createBtn) {
-                createBtn.onclick = createObjectAtPlayer;
-            }
-            
-            const chatSend = document.getElementById('chat-send');
-            if (chatSend) {
-                chatSend.onclick = () => {
-                    const input = document.getElementById('chat-input');
-                    if (input && input.value.trim()) {
-                        sendMessage(input.value);
-                        input.value = '';
-                    }
-                };
-            }
-            
-            const chatInput = document.getElementById('chat-input');
-            if (chatInput) {
-                chatInput.onkeypress = (e) => {
-                    if (e.key === 'Enter') {
-                        const sendBtn = document.getElementById('chat-send');
-                        if (sendBtn) sendBtn.click();
-                    }
-                };
-            }
+            document.getElementById('login-btn').onclick = window.login;
+            document.getElementById('toggle-hub').onclick = () => {
+                document.getElementById('creator-hub').classList.toggle('open');
+            };
+            document.getElementById('create-object').onclick = createObjectAtPlayer;
+            document.getElementById('chat-send').onclick = () => {
+                const input = document.getElementById('chat-input');
+                if (input.value.trim()) {
+                    sendMessage(input.value);
+                    input.value = '';
+                }
+            };
+            document.getElementById('chat-input').onkeypress = (e) => {
+                if (e.key === 'Enter') document.getElementById('chat-send').click();
+            };
         };
         
         window.deleteObject = deleteObject;
@@ -830,6 +748,7 @@
     
     <div id="hud" style="display: none;">
         <div>📍 Позиция: <span id="pos">X:0 Z:0</span></div>
+        <div>🏃 Shift - бег</div>
     </div>
     
     <div id="players-online" style="display: none;">
@@ -845,16 +764,16 @@
         </div>
     </div>
     
-    <div id="performance" style="display: none;">
-        FPS: <span id="fps">0</span> | Обн/сек: <span id="updates">0</span>
-    </div>
-    
     <div id="login-modal">
         <div class="login-box">
             <h2>SoberBlox</h2>
             <input type="text" id="username-input" placeholder="Введите имя игрока" maxlength="16">
             <button id="login-btn">Войти в игру</button>
         </div>
+    </div>
+    
+    <div class="controls-info">
+        🎮 WASD - движение | 🖱️ Мышь - поворот | Shift - бег | Enter - чат
     </div>
 </body>
 </html>
